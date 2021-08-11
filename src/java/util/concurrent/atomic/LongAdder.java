@@ -1,32 +1,32 @@
 /*
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
  *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
  *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
  */
 
 /*
- *
- *
- *
- *
+ * This file is available under and governed by the GNU General Public
+ * License version 2 only, as published by the Free Software Foundation.
+ * However, the following notice accompanied the original version of this
+ * file:
  *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
@@ -82,12 +82,44 @@ public class LongAdder extends Striped64 implements Serializable {
      * @param x the value to add
      */
     public void add(long x) {
+        //as 表示cells引用
+        //b 表示获取的base值
+        //v 表示 期望值
+        //m 表示 cells 数组的长度
+        //a 表示当前线程命中的cell单元格
         Cell[] as; long b, v; int m; Cell a;
+
+        //条件一：true->表示cells已经初始化过了,当前线程应该将数据写入到对应的cell中
+        //       false->表示cells未初始化，当前所有线程应该将数据写到base中
+
+        //条件二：false->表示当前线程cas替换数据成功，
+        //       true->表示发生竞争了，可能需要重试 或者 扩容
         if ((as = cells) != null || !casBase(b = base, b + x)) {
+            //什么时候会进来？
+            //1.true->表示cells已经初始化过了,当前线程应该将数据写入到对应的cell中
+            //2.true->表示发生竞争了，可能需要重试 或者 扩容
+
+
+
+            //true -> 未竞争  false->发生竞争
             boolean uncontended = true;
+
+            //条件一：true->说明 cells 未初始化，也就是多线程写base发生竞争了
+            //       false->说明 cells 已经初始化了，当前线程应该是 找自己的cell 写值
+
+            //条件二：getProbe() 获取当前线程的hash值   m表示cells长度-1 cells长度 一定是2的次方数   15= b1111
+            //       true-> 说明当前线程对应下标的cell为空，需要创建 longAccumulate 支持
+            //       false-> 说明当前线程对应的cell 不为空，说明 下一步想要将x值 添加到cell中。
+
+            //条件三：true->表示cas失败，意味着当前线程对应的cell 有竞争
+            //       false->表示cas成功
             if (as == null || (m = as.length - 1) < 0 ||
-                (a = as[getProbe() & m]) == null ||
-                !(uncontended = a.cas(v = a.value, v + x)))
+                    (a = as[getProbe() & m]) == null ||
+                    !(uncontended = a.cas(v = a.value, v + x)))
+                //都有哪些情况会调用？
+                //1.true->说明 cells 未初始化，也就是多线程写base发生竞争了[重试|初始化cells]
+                //2.true-> 说明当前线程对应下标的cell为空，需要创建 longAccumulate 支持
+                //3.true->表示cas失败，意味着当前线程对应的cell 有竞争[重试|扩容]
                 longAccumulate(x, null, uncontended);
         }
     }
@@ -95,6 +127,7 @@ public class LongAdder extends Striped64 implements Serializable {
     /**
      * Equivalent to {@code add(1)}.
      */
+    //+1
     public void increment() {
         add(1L);
     }
@@ -102,6 +135,7 @@ public class LongAdder extends Striped64 implements Serializable {
     /**
      * Equivalent to {@code add(-1)}.
      */
+    //-1
     public void decrement() {
         add(-1L);
     }
@@ -261,7 +295,7 @@ public class LongAdder extends Striped64 implements Serializable {
      * @throws java.io.InvalidObjectException always
      */
     private void readObject(java.io.ObjectInputStream s)
-        throws java.io.InvalidObjectException {
+            throws java.io.InvalidObjectException {
         throw new java.io.InvalidObjectException("Proxy required");
     }
 

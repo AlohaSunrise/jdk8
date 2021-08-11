@@ -124,6 +124,7 @@ class DirectByteBuffer
 
         long base = 0;
         try {
+            //申请堆外内存，base是内存地址
             base = unsafe.allocateMemory(size);
         } catch (OutOfMemoryError x) {
             Bits.unreserveMemory(size, cap);
@@ -136,6 +137,7 @@ class DirectByteBuffer
         } else {
             address = base;
         }
+        //负责清理堆外内存的
         cleaner = Cleaner.create(this, new Deallocator(base, size, cap));
         att = null;
 

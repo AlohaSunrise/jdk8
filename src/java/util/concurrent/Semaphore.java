@@ -179,7 +179,7 @@ public class Semaphore implements java.io.Serializable {
                 int available = getState();
                 int remaining = available - acquires;
                 if (remaining < 0 ||
-                    compareAndSetState(available, remaining))
+                        compareAndSetState(available, remaining))
                     return remaining;
             }
         }
@@ -240,18 +240,38 @@ public class Semaphore implements java.io.Serializable {
             super(permits);
         }
 
+        /**
+         * 尝试获取通行证，获取成功返回 >= 0的值;
+         * 获取失败 返回 < 0 值
+         */
         protected int tryAcquireShared(int acquires) {
             for (;;) {
+                //判断当前 AQS 阻塞队列内 是否有等待者线程，如果有直接返回-1，表示当前aquire操作的线程需要进入到队列等待..
                 if (hasQueuedPredecessors())
                     return -1;
+                //执行到这里，有哪几种情况？
+                //1.调用aquire时 AQS阻塞队列内没有其它等待者
+                //2.当前节点 在阻塞队列内是headNext节点
+
+                //获取state ，state这里表示 通行证
                 int available = getState();
+                //remaining 表示当前线程 获取通行证完成之后，semaphore还剩余数量
                 int remaining = available - acquires;
+
+                //条件一：remaining < 0 成立，说明线程获取通行证失败..
+                //条件二：前置条件，remaning >= 0, CAS更新state 成功，说明线程获取通行证成功，CAS失败，则自旋。
                 if (remaining < 0 ||
-                    compareAndSetState(available, remaining))
+                        compareAndSetState(available, remaining))
                     return remaining;
             }
         }
+
+
+        
+ 
     }
+
+
 
     /**
      * Creates a {@code Semaphore} with the given number of
@@ -405,7 +425,7 @@ public class Semaphore implements java.io.Serializable {
      * @throws InterruptedException if the current thread is interrupted
      */
     public boolean tryAcquire(long timeout, TimeUnit unit)
-        throws InterruptedException {
+            throws InterruptedException {
         return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));
     }
 
@@ -577,7 +597,7 @@ public class Semaphore implements java.io.Serializable {
      * @throws IllegalArgumentException if {@code permits} is negative
      */
     public boolean tryAcquire(int permits, long timeout, TimeUnit unit)
-        throws InterruptedException {
+            throws InterruptedException {
         if (permits < 0) throw new IllegalArgumentException();
         return sync.tryAcquireSharedNanos(permits, unit.toNanos(timeout));
     }

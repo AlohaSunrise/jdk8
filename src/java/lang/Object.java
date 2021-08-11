@@ -34,8 +34,12 @@ package java.lang;
  * @see     java.lang.Class
  * @since   JDK1.0
  */
+//1.1.6版本之前是java---javac 编译器编译进class文件的
+  //  2.JDK 7(含)之后是虚拟机处理（class文件里没extends object了）
 public class Object {
 
+    //本地方法调用遵守JNI命名规范，即:要求本地方法名由 “Java”+“包名”+“方法名”构成 所以，该方法对应的关键字就是【Java_java_lang_Object_registerNatives】
+    //Object类的本地方法调用C方法是通过registerNatives加载的  C里面通过methods函数对JAVA到C++的函数名做了调用映射  getClass比较特殊，单独调用
     private static native void registerNatives(); //
     static {
         registerNatives(); // 静态代码块，类加载时，就调用注册本地方法
@@ -86,6 +90,7 @@ public class Object {
      *
      *           PS: 有人可能会疑惑，使用随机数方式生成hashCode之后，那岂不是每次调用就是未知数了，不能保证幂等性。然而并不是这样的，同一对象的hashCode从初次获取后就已经被缓存到对象头的MarkWord中了,以后获取时如果发现MarkWord中有hashCode,那么就会直接返回。
      *
+     *
      * Returns a hash code value for the object. This method is
      * supported for the benefit of hash tables such as those provided by
      * {@link java.util.HashMap}.
@@ -120,6 +125,8 @@ public class Object {
      * @see     java.lang.Object#equals(java.lang.Object)
      * @see     java.lang.System#identityHashCode
      */
+    //hashcode 不是内存地址，会发生重复（垃圾回收算法，复制整理等等会改变对象的内存地址）
+    //hashcode存在哪:在对象头的markword里
     public native int hashCode();
 
     /**

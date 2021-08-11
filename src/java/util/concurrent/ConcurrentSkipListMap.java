@@ -114,7 +114,7 @@ import java.util.function.Function;
  * @since 1.6
  */
 public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
-    implements ConcurrentNavigableMap<K,V>, Cloneable, Serializable {
+        implements ConcurrentNavigableMap<K,V>, Cloneable, Serializable {
     /*
      * This class implements a tree-like two-dimensionally linked skip
      * list in which the index levels are represented in separate
@@ -395,7 +395,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         values = null;
         descendingMap = null;
         head = new HeadIndex<K,V>(new Node<K,V>(null, BASE_HEADER, null),
-                                  null, null, 1);
+                null, null, 1);
     }
 
     /**
@@ -544,9 +544,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 UNSAFE = sun.misc.Unsafe.getUnsafe();
                 Class<?> k = Node.class;
                 valueOffset = UNSAFE.objectFieldOffset
-                    (k.getDeclaredField("value"));
+                        (k.getDeclaredField("value"));
                 nextOffset = UNSAFE.objectFieldOffset
-                    (k.getDeclaredField("next"));
+                        (k.getDeclaredField("next"));
             } catch (Exception e) {
                 throw new Error(e);
             }
@@ -624,7 +624,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 UNSAFE = sun.misc.Unsafe.getUnsafe();
                 Class<?> k = Index.class;
                 rightOffset = UNSAFE.objectFieldOffset
-                    (k.getDeclaredField("right"));
+                        (k.getDeclaredField("right"));
             } catch (Exception e) {
                 throw new Error(e);
             }
@@ -859,37 +859,95 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             int level = 1, max;
             while (((rnd >>>= 1) & 1) != 0)
                 ++level;
+            // 计算得到的 level => 3
             Index<K,V> idx = null;
             HeadIndex<K,V> h = head;
+
+            // 假设 得到的数是：0b 0000 1111 0000 1111 0000 1111 0000 0110，计算得出的 level = 3
+            // 假设 h.level = 3 ，该条件成立...
             if (level <= (max = h.level)) {
                 for (int i = 1; i <= level; ++i)
                     idx = new Index<K,V>(z, idx, null);
             }
+            // 假设 得到的数是：0b 0000 1111 0000 1111 0000 1111 0000 1110，计算得出的 level = 4
+            // 假设 h.level = 3，会执行到else
             else { // try to grow by one level
+                // level 值被重置了，重置为  原 maxLevel + 1，比如说 原head->index.level = 3, =》 level = 4
                 level = max + 1; // hold in array and later pick the one to use
+
+                // 创建一个index数组，长度是 level + 1,假设 level is 4， 创建的数组长度为 5.
                 @SuppressWarnings("unchecked")Index<K,V>[] idxs =
-                    (Index<K,V>[])new Index<?,?>[level+1];
+                        (Index<K,V>[])new Index<?,?>[level+1];
+
+                // 看完这个for循环 就清楚了...原来 index[0] 的这个数组slot 并没有 使用...只使用 [1,level] 这些数组slot了。
                 for (int i = 1; i <= level; ++i)
+                    // index-4   ← idx
+                    //   ↓
+                    // index-3
+                    //   ↓
+                    // index-2
+                    //   ↓
+                    // index-1
+                    //   ↓
+                    //  z-node
                     idxs[i] = idx = new Index<K,V>(z, idx, null);
+
+
+
                 for (;;) {
                     h = head;
                     int oldLevel = h.level;
                     if (level <= oldLevel) // lost race to add level
                         break;
+                    // newh 最终会指向 最新的 head 节点。
                     HeadIndex<K,V> newh = h;
+                    // oldbase 指向 baseHeader 节点。
                     Node<K,V> oldbase = h.node;
+
+                    // 升级 baseHeader 索引，升高一级。
                     for (int j = oldLevel+1; j <= level; ++j)
                         newh = new HeadIndex<K,V>(oldbase, newh, idxs[j], j);
+                    // 执行完for循环之后，baseHeader 索引长这个样子..
+                    // index-4             →             index-4
+                    //   ↓                                  ↓
+                    // index-3                           index-3     ← idx
+                    //   ↓                                  ↓
+                    // index-2                           index-2
+                    //   ↓                                  ↓
+                    // index-1                           index-1
+                    //   ↓                                  ↓
+                    // baseHeader         ....            z-node
+
+
+                    // cas成功后，map.head 字段指向 最新的 headIndex，即上图中 baseHeader 的 index-4 节点。
                     if (casHead(h, newh)) {
+                        // h 指向最新的 index-4 节点， idx 指向 z-node 的index-3 节点。
+                        // 为什么 idx 要指向 z-node 的 index-3 节点？
+                        // 因为从index-3 ~ index-1 的这些z-node的索引节点 都没有插入到 索引链表...接下来要做的事情就是 将 这些 索引节点 插入链表。
                         h = newh;
                         idx = idxs[level = oldLevel];
                         break;
                     }
                 }
             }
+
+            // idx 指向z-node 最上层的 且 尚未与前驱 index 串联起来的 index。
+            // 情况1：z-node 计算出来的z-level <= headLevel，假设 headLevel = 3, z-level = 3
+            // => idx -> index-3
+            // 情况2：z-node 计算出来的z-level > headLevel，假设 headLevel = 3, z-level = 5,
+            // 程序接下来会重置z-level = headLevel + 1 => 4，并创建出 高度为 4 的index 索引。
+            // => idx -> index-3
+
+
+            // insertionLevel 代表 z-node 尚未处理 队列关系的 层级...
+            // 比如 情况1 时，insertionLevel = 3
+            //     情况2 时，insertionLevel = 3
             // find insertion points and splice in
             splice: for (int insertionLevel = level;;) {
+                // baseHeader 最高层的index level 赋值给j。 情况1 时 是 3，情况2 时  是 4
                 int j = h.level;
+
+
                 for (Index<K,V> q = h, r = q.right, t = idx;;) {
                     if (q == null || t == null)
                         break splice;
@@ -909,6 +967,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                             continue;
                         }
                     }
+
+                    // 执行到这里，说明r 底层 node.key > key
 
                     if (j == insertionLevel) {
                         if (!q.link(r, t))
@@ -1020,13 +1080,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         HeadIndex<K,V> d;
         HeadIndex<K,V> e;
         if (h.level > 3 &&
-            (d = (HeadIndex<K,V>)h.down) != null &&
-            (e = (HeadIndex<K,V>)d.down) != null &&
-            e.right == null &&
-            d.right == null &&
-            h.right == null &&
-            casHead(h, d) && // try to set
-            h.right != null) // recheck
+                (d = (HeadIndex<K,V>)h.down) != null &&
+                (e = (HeadIndex<K,V>)d.down) != null &&
+                e.right == null &&
+                d.right == null &&
+                h.right == null &&
+                casHead(h, d) && // try to set
+                h.right != null) // recheck
             casHead(d, h);   // try to backout
     }
 
@@ -1246,7 +1306,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     break;
                 int c = cpr(cmp, key, n.key);
                 if ((c == 0 && (rel & EQ) != 0) ||
-                    (c <  0 && (rel & LT) == 0))
+                        (c <  0 && (rel & LT) == 0))
                     return n;
                 if ( c <= 0 && (rel & LT) != 0)
                     return b.isBaseHeader() ? null : b;
@@ -1340,7 +1400,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         try {
             @SuppressWarnings("unchecked")
             ConcurrentSkipListMap<K,V> clone =
-                (ConcurrentSkipListMap<K,V>) super.clone();
+                    (ConcurrentSkipListMap<K,V>) super.clone();
             clone.initialize();
             clone.buildFromSorted(this);
             return clone;
@@ -1375,7 +1435,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         }
 
         Iterator<? extends Map.Entry<? extends K, ? extends V>> it =
-            map.entrySet().iterator();
+                map.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<? extends K, ? extends V> e = it.next();
             int rnd = ThreadLocalRandom.current().nextInt();
@@ -1425,7 +1485,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * ordering if no Comparator).
      */
     private void writeObject(java.io.ObjectOutputStream s)
-        throws java.io.IOException {
+            throws java.io.IOException {
         // Write out the Comparator and any hidden stuff
         s.defaultWriteObject();
 
@@ -1449,7 +1509,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      */
     @SuppressWarnings("unchecked")
     private void readObject(final java.io.ObjectInputStream s)
-        throws java.io.IOException, ClassNotFoundException {
+            throws java.io.IOException, ClassNotFoundException {
         // Read in the Comparator and any hidden stuff
         s.defaultReadObject();
         // Reset transients
@@ -1679,7 +1739,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             throw new NullPointerException();
         V v, p, r;
         if ((v = doGet(key)) == null &&
-            (r = mappingFunction.apply(key)) != null)
+                (r = mappingFunction.apply(key)) != null)
             v = (p = doPut(key, r, true)) == null ? r : p;
         return v;
     }
@@ -1900,7 +1960,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
     public ConcurrentNavigableMap<K,V> descendingMap() {
         ConcurrentNavigableMap<K,V> dm = descendingMap;
         return (dm != null) ? dm : (descendingMap = new SubMap<K,V>
-                                    (this, null, false, null, false, true));
+                (this, null, false, null, false, true));
     }
 
     public NavigableSet<K> descendingKeySet() {
@@ -2059,7 +2119,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         if (fromKey == null || toKey == null)
             throw new NullPointerException();
         return new SubMap<K,V>
-            (this, fromKey, fromInclusive, toKey, toInclusive, false);
+                (this, fromKey, fromInclusive, toKey, toInclusive, false);
     }
 
     /**
@@ -2072,7 +2132,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         if (toKey == null)
             throw new NullPointerException();
         return new SubMap<K,V>
-            (this, null, false, toKey, inclusive, false);
+                (this, null, false, toKey, inclusive, false);
     }
 
     /**
@@ -2085,7 +2145,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         if (fromKey == null)
             throw new NullPointerException();
         return new SubMap<K,V>
-            (this, fromKey, inclusive, null, false, false);
+                (this, fromKey, inclusive, null, false, false);
     }
 
     /**
@@ -2430,7 +2490,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                                       E toElement,
                                       boolean toInclusive) {
             return new KeySet<E>(m.subMap(fromElement, fromInclusive,
-                                          toElement,   toInclusive));
+                    toElement,   toInclusive));
         }
         public NavigableSet<E> headSet(E toElement, boolean inclusive) {
             return new KeySet<E>(m.headMap(toElement, inclusive));
@@ -2519,7 +2579,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 return false;
             Map.Entry<?,?> e = (Map.Entry<?,?>)o;
             return m.remove(e.getKey(),
-                            e.getValue());
+                    e.getValue());
         }
         public boolean isEmpty() {
             return m.isEmpty();
@@ -2552,7 +2612,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 return ((ConcurrentSkipListMap<K1,V1>)m).entrySpliterator();
             else
                 return (Spliterator<Map.Entry<K1,V1>>)
-                    ((SubMap<K1,V1>)m).entryIterator();
+                        ((SubMap<K1,V1>)m).entryIterator();
         }
     }
 
@@ -2569,7 +2629,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * @serial include
      */
     static final class SubMap<K,V> extends AbstractMap<K,V>
-        implements ConcurrentNavigableMap<K,V>, Cloneable, Serializable {
+            implements ConcurrentNavigableMap<K,V>, Cloneable, Serializable {
         private static final long serialVersionUID = -7647078645895051609L;
 
         /** Underlying map */
@@ -2599,7 +2659,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                boolean isDescending) {
             Comparator<? super K> cmp = map.comparator;
             if (fromKey != null && toKey != null &&
-                cpr(cmp, fromKey, toKey) > 0)
+                    cpr(cmp, fromKey, toKey) > 0)
                 throw new IllegalArgumentException("inconsistent range");
             this.m = map;
             this.lo = fromKey;
@@ -2614,13 +2674,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         boolean tooLow(Object key, Comparator<? super K> cmp) {
             int c;
             return (lo != null && ((c = cpr(cmp, key, lo)) < 0 ||
-                                   (c == 0 && !loInclusive)));
+                    (c == 0 && !loInclusive)));
         }
 
         boolean tooHigh(Object key, Comparator<? super K> cmp) {
             int c;
             return (hi != null && ((c = cpr(cmp, key, hi)) > 0 ||
-                                   (c == 0 && !hiInclusive)));
+                    (c == 0 && !hiInclusive)));
         }
 
         boolean inBounds(Object key, Comparator<? super K> cmp) {
@@ -2954,7 +3014,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 }
             }
             return new SubMap<K,V>(m, fromKey, fromInclusive,
-                                   toKey, toInclusive, isDescending);
+                    toKey, toInclusive, isDescending);
         }
 
         public SubMap<K,V> subMap(K fromKey, boolean fromInclusive,
@@ -2990,7 +3050,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
         public SubMap<K,V> descendingMap() {
             return new SubMap<K,V>(m, lo, loInclusive,
-                                   hi, hiInclusive, !isDescending);
+                    hi, hiInclusive, !isDescending);
         }
 
         /* ----------------  Relational methods -------------- */
@@ -3222,7 +3282,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             }
             public int characteristics() {
                 return Spliterator.DISTINCT | Spliterator.ORDERED |
-                    Spliterator.SORTED;
+                        Spliterator.SORTED;
             }
             public final Comparator<? super K> getComparator() {
                 return SubMap.this.comparator();
@@ -3299,7 +3359,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
     }
 
     static final class KeySpliterator<K,V> extends CSLMSpliterator<K,V>
-        implements Spliterator<K> {
+            implements Spliterator<K> {
         KeySpliterator(Comparator<? super K> comparator, Index<K,V> row,
                        Node<K,V> origin, K fence, int est) {
             super(comparator, row, origin, fence, est);
@@ -3313,9 +3373,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 for (Index<K,V> q = row; q != null; q = row = q.down) {
                     Index<K,V> s; Node<K,V> b, n; K sk;
                     if ((s = q.right) != null && (b = s.node) != null &&
-                        (n = b.next) != null && n.value != null &&
-                        (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
-                        (f == null || cpr(cmp, sk, f) < 0)) {
+                            (n = b.next) != null && n.value != null &&
+                            (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
+                            (f == null || cpr(cmp, sk, f) < 0)) {
                         current = n;
                         Index<K,V> r = q.down;
                         row = (s.right != null) ? s : s.down;
@@ -3365,8 +3425,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
         public int characteristics() {
             return Spliterator.DISTINCT | Spliterator.SORTED |
-                Spliterator.ORDERED | Spliterator.CONCURRENT |
-                Spliterator.NONNULL;
+                    Spliterator.ORDERED | Spliterator.CONCURRENT |
+                    Spliterator.NONNULL;
         }
 
         public final Comparator<? super K> getComparator() {
@@ -3381,15 +3441,15 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             Node<K,V> b = (h = head).node;
             if ((p = b.next) == null || p.value != null)
                 return new KeySpliterator<K,V>(cmp, h, p, null, (p == null) ?
-                                               0 : Integer.MAX_VALUE);
+                        0 : Integer.MAX_VALUE);
             p.helpDelete(b, p.next);
         }
     }
 
     static final class ValueSpliterator<K,V> extends CSLMSpliterator<K,V>
-        implements Spliterator<V> {
+            implements Spliterator<V> {
         ValueSpliterator(Comparator<? super K> comparator, Index<K,V> row,
-                       Node<K,V> origin, K fence, int est) {
+                         Node<K,V> origin, K fence, int est) {
             super(comparator, row, origin, fence, est);
         }
 
@@ -3401,9 +3461,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 for (Index<K,V> q = row; q != null; q = row = q.down) {
                     Index<K,V> s; Node<K,V> b, n; K sk;
                     if ((s = q.right) != null && (b = s.node) != null &&
-                        (n = b.next) != null && n.value != null &&
-                        (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
-                        (f == null || cpr(cmp, sk, f) < 0)) {
+                            (n = b.next) != null && n.value != null &&
+                            (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
+                            (f == null || cpr(cmp, sk, f) < 0)) {
                         current = n;
                         Index<K,V> r = q.down;
                         row = (s.right != null) ? s : s.down;
@@ -3456,7 +3516,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
         public int characteristics() {
             return Spliterator.CONCURRENT | Spliterator.ORDERED |
-                Spliterator.NONNULL;
+                    Spliterator.NONNULL;
         }
     }
 
@@ -3468,13 +3528,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             Node<K,V> b = (h = head).node;
             if ((p = b.next) == null || p.value != null)
                 return new ValueSpliterator<K,V>(cmp, h, p, null, (p == null) ?
-                                                 0 : Integer.MAX_VALUE);
+                        0 : Integer.MAX_VALUE);
             p.helpDelete(b, p.next);
         }
     }
 
     static final class EntrySpliterator<K,V> extends CSLMSpliterator<K,V>
-        implements Spliterator<Map.Entry<K,V>> {
+            implements Spliterator<Map.Entry<K,V>> {
         EntrySpliterator(Comparator<? super K> comparator, Index<K,V> row,
                          Node<K,V> origin, K fence, int est) {
             super(comparator, row, origin, fence, est);
@@ -3488,9 +3548,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 for (Index<K,V> q = row; q != null; q = row = q.down) {
                     Index<K,V> s; Node<K,V> b, n; K sk;
                     if ((s = q.right) != null && (b = s.node) != null &&
-                        (n = b.next) != null && n.value != null &&
-                        (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
-                        (f == null || cpr(cmp, sk, f) < 0)) {
+                            (n = b.next) != null && n.value != null &&
+                            (sk = n.key) != null && cpr(cmp, sk, ek) > 0 &&
+                            (f == null || cpr(cmp, sk, f) < 0)) {
                         current = n;
                         Index<K,V> r = q.down;
                         row = (s.right != null) ? s : s.down;
@@ -3515,7 +3575,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 if ((v = e.value) != null && v != e) {
                     @SuppressWarnings("unchecked") V vv = (V)v;
                     action.accept
-                        (new AbstractMap.SimpleImmutableEntry<K,V>(k, vv));
+                            (new AbstractMap.SimpleImmutableEntry<K,V>(k, vv));
                 }
             }
         }
@@ -3535,7 +3595,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     current = e.next;
                     @SuppressWarnings("unchecked") V vv = (V)v;
                     action.accept
-                        (new AbstractMap.SimpleImmutableEntry<K,V>(k, vv));
+                            (new AbstractMap.SimpleImmutableEntry<K,V>(k, vv));
                     return true;
                 }
             }
@@ -3545,8 +3605,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
         public int characteristics() {
             return Spliterator.DISTINCT | Spliterator.SORTED |
-                Spliterator.ORDERED | Spliterator.CONCURRENT |
-                Spliterator.NONNULL;
+                    Spliterator.ORDERED | Spliterator.CONCURRENT |
+                    Spliterator.NONNULL;
         }
 
         public final Comparator<Map.Entry<K,V>> getComparator() {
@@ -3572,7 +3632,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             Node<K,V> b = (h = head).node;
             if ((p = b.next) == null || p.value != null)
                 return new EntrySpliterator<K,V>(cmp, h, p, null, (p == null) ?
-                                                 0 : Integer.MAX_VALUE);
+                        0 : Integer.MAX_VALUE);
             p.helpDelete(b, p.next);
         }
     }
@@ -3586,10 +3646,10 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             UNSAFE = sun.misc.Unsafe.getUnsafe();
             Class<?> k = ConcurrentSkipListMap.class;
             headOffset = UNSAFE.objectFieldOffset
-                (k.getDeclaredField("head"));
+                    (k.getDeclaredField("head"));
             Class<?> tk = Thread.class;
             SECONDARY = UNSAFE.objectFieldOffset
-                (tk.getDeclaredField("threadLocalRandomSecondarySeed"));
+                    (tk.getDeclaredField("threadLocalRandomSecondarySeed"));
 
         } catch (Exception e) {
             throw new Error(e);

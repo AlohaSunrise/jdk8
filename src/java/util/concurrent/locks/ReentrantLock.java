@@ -186,7 +186,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * Reconstitutes the instance from a stream (that is, deserializes it).
          */
         private void readObject(java.io.ObjectInputStream s)
-            throws java.io.IOException, ClassNotFoundException {
+                throws java.io.IOException, ClassNotFoundException {
             s.defaultReadObject();
             setState(0); // reset to unlocked state
         }
@@ -216,35 +216,66 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
     /**
      * Sync object for fair locks
+     * 公平锁
      */
     static final class FairSync extends Sync {
         private static final long serialVersionUID = -3000897897090466540L;
 
+
+        //公平锁入口..
+        //不响应中断的加锁..响应中断的 方法为：lockinterrupted。。
         final void lock() {
             acquire(1);
         }
-
         /**
          * Fair version of tryAcquire.  Don't grant access unless
          * recursive call or no waiters or is first.
+         * 抢占成功：返回true  包含重入..
+         * 抢占失败：返回false
          */
         protected final boolean tryAcquire(int acquires) {
+            //current 当前线程
             final Thread current = Thread.currentThread();
+            //AQS state 值
             int c = getState();
+            //条件成立：c == 0 表示当前AQS处于无锁状态..
             if (c == 0) {
+                //条件一：
+                //因为fairSync是公平锁，任何时候都需要检查一下 队列中是否在当前线程之前有等待者..
+                //hasQueuedPredecessors() 方法返回 true 表示当前线程前面有等待者，当前线程需要入队等待
+                //hasQueuedPredecessors() 方法返回 false 表示当前线程前面无等待者，直接尝试获取锁..
+
+                //条件二：compareAndSetState(0, acquires)
+                //成功：说明当前线程抢占锁成功
+                //失败：说明存在竞争，且当前线程竞争失败..
                 if (!hasQueuedPredecessors() &&
-                    compareAndSetState(0, acquires)) {
+                        compareAndSetState(0, acquires)) {
+                    //成功之后需要做什么？
+                    //设置当前线程为 独占者 线程。
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             }
+            //执行到这里，有几种情况？
+            //c != 0 大于0 的情况，这种情况就需要检查一下 当前线程是不是 独占锁的线程，因为ReentrantLock是可以重入的.
+
+            //条件成立：说明当前线程就是独占锁线程..
             else if (current == getExclusiveOwnerThread()) {
+                //锁重入的逻辑..
+
+                //nextc 更新值..
                 int nextc = c + acquires;
+                //越界判断，当重入的深度很深时，会导致 nextc < 0 ，int值达到最大之后 再 + 1 ...变负数..
                 if (nextc < 0)
                     throw new Error("Maximum lock count exceeded");
+                //更新的操作
                 setState(nextc);
                 return true;
             }
+
+            //执行到这里？
+            //1.CAS失败  c == 0 时，CAS修改 state 时 未抢过其他线程...
+            //2.c > 0 且 ownerThread != currentThread.
             return false;
         }
     }
@@ -756,7 +787,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
     public String toString() {
         Thread o = sync.getOwner();
         return super.toString() + ((o == null) ?
-                                   "[Unlocked]" :
-                                   "[Locked by thread " + o.getName() + "]");
+                "[Unlocked]" :
+                "[Locked by thread " + o.getName() + "]");
     }
 }

@@ -111,6 +111,7 @@ public class ArrayList<E> extends AbstractList<E>
 
     /**
      * Default initial capacity.
+     * д╛хохща©
      */
     private static final int DEFAULT_CAPACITY = 10;
 

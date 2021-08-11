@@ -169,18 +169,30 @@ public class CountDownLatch {
             return getState();
         }
 
+
         protected int tryAcquireShared(int acquires) {
             return (getState() == 0) ? 1 : -1;
         }
 
+        /**
+         * 更新 AQS.state 值，每调用一次，state值减一，当state -1 正好为0时，返回true
+         */
         protected boolean tryReleaseShared(int releases) {
             // Decrement count; signal when transition to zero
             for (;;) {
+                //获取当前AQS.state
                 int c = getState();
+                //条件成立：说明前面已经有线程 触发 唤醒操作了，这里返回false
                 if (c == 0)
                     return false;
+
+                //执行到这里，说明 state > 0
+
                 int nextc = c-1;
+
+                //cas成功，说明当前线程执行 tryReleaseShared 方法 c-1之前，没有其它线程 修改过 state。
                 if (compareAndSetState(c, nextc))
+                    //nextc == 0 ：true ，说明当前调用 countDown() 方法的线程 就是需要触发 唤醒操作的线程.
                     return nextc == 0;
             }
         }
@@ -273,7 +285,7 @@ public class CountDownLatch {
      *         while waiting
      */
     public boolean await(long timeout, TimeUnit unit)
-        throws InterruptedException {
+            throws InterruptedException {
         return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));
     }
 

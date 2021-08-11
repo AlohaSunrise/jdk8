@@ -231,13 +231,13 @@ public class Proxy implements java.io.Serializable {
 
     /** parameter types of a proxy class constructor */
     private static final Class<?>[] constructorParams =
-        { InvocationHandler.class };
+            { InvocationHandler.class };
 
     /**
      * a cache of proxy classes
      */
     private static final WeakCache<ClassLoader, Class<?>[], Class<?>>
-        proxyClassCache = new WeakCache<>(new KeyFactory(), new ProxyClassFactory());
+            proxyClassCache = new WeakCache<>(new KeyFactory(), new ProxyClassFactory());
 
     /**
      * the invocation handler for this proxy instance.
@@ -360,7 +360,7 @@ public class Proxy implements java.io.Serializable {
     @CallerSensitive
     public static Class<?> getProxyClass(ClassLoader loader,
                                          Class<?>... interfaces)
-        throws IllegalArgumentException
+            throws IllegalArgumentException
     {
         final Class<?>[] intfs = interfaces.clone();
         final SecurityManager sm = System.getSecurityManager();
@@ -449,10 +449,10 @@ public class Proxy implements java.io.Serializable {
         public boolean equals(Object obj) {
             Class<?> intf;
             return this == obj ||
-                   obj != null &&
-                   obj.getClass() == Key1.class &&
-                   (intf = get()) != null &&
-                   intf == ((Key1) obj).get();
+                    obj != null &&
+                            obj.getClass() == Key1.class &&
+                            (intf = get()) != null &&
+                            intf == ((Key1) obj).get();
         }
     }
 
@@ -478,12 +478,12 @@ public class Proxy implements java.io.Serializable {
         public boolean equals(Object obj) {
             Class<?> intf1, intf2;
             return this == obj ||
-                   obj != null &&
-                   obj.getClass() == Key2.class &&
-                   (intf1 = get()) != null &&
-                   intf1 == ((Key2) obj).get() &&
-                   (intf2 = ref2.get()) != null &&
-                   intf2 == ((Key2) obj).ref2.get();
+                    obj != null &&
+                            obj.getClass() == Key2.class &&
+                            (intf1 = get()) != null &&
+                            intf1 == ((Key2) obj).get() &&
+                            (intf2 = ref2.get()) != null &&
+                            intf2 == ((Key2) obj).ref2.get();
         }
     }
 
@@ -512,9 +512,9 @@ public class Proxy implements java.io.Serializable {
         @Override
         public boolean equals(Object obj) {
             return this == obj ||
-                   obj != null &&
-                   obj.getClass() == KeyX.class &&
-                   equals(refs, ((KeyX) obj).refs);
+                    obj != null &&
+                            obj.getClass() == KeyX.class &&
+                            equals(refs, ((KeyX) obj).refs);
         }
 
         private static boolean equals(WeakReference<Class<?>>[] refs1,
@@ -537,7 +537,7 @@ public class Proxy implements java.io.Serializable {
      * Class objects representing interfaces are weakly referenced.
      */
     private static final class KeyFactory
-        implements BiFunction<ClassLoader, Class<?>[], Object>
+            implements BiFunction<ClassLoader, Class<?>[], Object>
     {
         @Override
         public Object apply(ClassLoader classLoader, Class<?>[] interfaces) {
@@ -555,18 +555,27 @@ public class Proxy implements java.io.Serializable {
      * the ClassLoader and array of interfaces.
      */
     private static final class ProxyClassFactory
-        implements BiFunction<ClassLoader, Class<?>[], Class<?>>
+            implements BiFunction<ClassLoader, Class<?>[], Class<?>>
     {
         // prefix for all proxy class names
+        // 代理类型名称前缀
         private static final String proxyClassNamePrefix = "$Proxy";
 
         // next number to use for generation of unique proxy class names
+        // 生成唯一数字使用，结合上面 代理类型名称前缀 一起生成 代理类名称 使用的。
         private static final AtomicLong nextUniqueNumber = new AtomicLong();
 
+
+        /**
+         * @param loader Proxy.newInstance时传递的
+         * @param interfaces Proxy.newInstance时传递的 接口集合。
+         */
         @Override
         public Class<?> apply(ClassLoader loader, Class<?>[] interfaces) {
 
             Map<Class<?>, Boolean> interfaceSet = new IdentityHashMap<>(interfaces.length);
+
+
             for (Class<?> intf : interfaces) {
                 /*
                  * Verify that the class loader resolves the name of this
@@ -574,31 +583,36 @@ public class Proxy implements java.io.Serializable {
                  */
                 Class<?> interfaceClass = null;
                 try {
+                    //加载接口到jvm
                     interfaceClass = Class.forName(intf.getName(), false, loader);
                 } catch (ClassNotFoundException e) {
                 }
                 if (interfaceClass != intf) {
                     throw new IllegalArgumentException(
-                        intf + " is not visible from class loader");
+                            intf + " is not visible from class loader");
                 }
                 /*
                  * Verify that the Class object actually represents an
                  * interface.
                  */
+                //保证 interfaces 接口集合内 全部都是接口
                 if (!interfaceClass.isInterface()) {
                     throw new IllegalArgumentException(
-                        interfaceClass.getName() + " is not an interface");
+                            interfaceClass.getName() + " is not an interface");
                 }
                 /*
                  * Verify that this interface is not a duplicate.
                  */
+                //保证 interfaces 接口集合内 没有重复接口
                 if (interfaceSet.put(interfaceClass, Boolean.TRUE) != null) {
                     throw new IllegalArgumentException(
-                        "repeated interface: " + interfaceClass.getName());
+                            "repeated interface: " + interfaceClass.getName());
                 }
             }
 
+            // 生成的代理类 它的包名！
             String proxyPkg = null;     // package to define proxy class in
+            // 生成的代理类 访问修饰符：public final ....
             int accessFlags = Modifier.PUBLIC | Modifier.FINAL;
 
             /*
@@ -606,21 +620,27 @@ public class Proxy implements java.io.Serializable {
              * proxy class will be defined in the same package.  Verify that
              * all non-public proxy interfaces are in the same package.
              */
+            //检查接口集合内的接口，看看有没有 某个接口 它的访问修饰符 不是 public 的！
+            //如果有哪个 不是public 的接口，那么咱们生成 代理类 class 就必须 和它在一个包下，否则会出现访问问题。
             for (Class<?> intf : interfaces) {
                 int flags = intf.getModifiers();
                 if (!Modifier.isPublic(flags)) {
                     accessFlags = Modifier.FINAL;
+                    //获取 当前接口的 全限定名！  包名.类名
                     String name = intf.getName();
+
                     int n = name.lastIndexOf('.');
+                    //获取当前接口包名
                     String pkg = ((n == -1) ? "" : name.substring(0, n + 1));
                     if (proxyPkg == null) {
                         proxyPkg = pkg;
                     } else if (!pkg.equals(proxyPkg)) {
                         throw new IllegalArgumentException(
-                            "non-public interfaces from different packages");
+                                "non-public interfaces from different packages");
                     }
                 }
             }
+
 
             if (proxyPkg == null) {
                 // if no non-public proxy interfaces, use com.sun.proxy package
@@ -630,17 +650,22 @@ public class Proxy implements java.io.Serializable {
             /*
              * Choose a name for the proxy class to generate.
              */
+            //获取唯一编号
             long num = nextUniqueNumber.getAndIncrement();
+            //包名 + $proxy + 数字
             String proxyName = proxyPkg + proxyClassNamePrefix + num;
 
             /*
              * Generate the specified proxy class.
              */
+            //生成二进制字节码，这个字节码写入到文件内 ，它就是一个编译好的 class文件。
             byte[] proxyClassFile = ProxyGenerator.generateProxyClass(
-                proxyName, interfaces, accessFlags);
+                    proxyName, interfaces, accessFlags);
+
             try {
+                // 使用加载器 加载这个 二进制 字节码 到 jvm，并且返回 代理类 Class
                 return defineClass0(loader, proxyName,
-                                    proxyClassFile, 0, proxyClassFile.length);
+                        proxyClassFile, 0, proxyClassFile.length);
             } catch (ClassFormatError e) {
                 /*
                  * A ClassFormatError here means that (barring bugs in the
@@ -699,14 +724,16 @@ public class Proxy implements java.io.Serializable {
      *          if the invocation handler, {@code h}, is
      *          {@code null}
      */
+    //参数一：类加载器
+    //参数二：代理类 需要 实现的接口集合
+    //参数三：代理类虽然全部实现了 接口方法，但是接口方法 要依靠 InvocationHandler 去处理。
     @CallerSensitive
     public static Object newProxyInstance(ClassLoader loader,
                                           Class<?>[] interfaces,
                                           InvocationHandler h)
-        throws IllegalArgumentException
+            throws IllegalArgumentException
     {
         Objects.requireNonNull(h);
-
         final Class<?>[] intfs = interfaces.clone();
         final SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
@@ -716,6 +743,8 @@ public class Proxy implements java.io.Serializable {
         /*
          * Look up or generate the designated proxy class.
          */
+
+        //生成代理Class类型，参数2  代理需要实现的接口
         Class<?> cl = getProxyClass0(loader, intfs);
 
         /*
@@ -725,7 +754,7 @@ public class Proxy implements java.io.Serializable {
             if (sm != null) {
                 checkNewProxyPermission(Reflection.getCallerClass(), cl);
             }
-
+            //获取 代理类 的构造方法，选择 参数为 InvocationHandler 类型的构造方法。
             final Constructor<?> cons = cl.getConstructor(constructorParams);
             final InvocationHandler ih = h;
             if (!Modifier.isPublic(cl.getModifiers())) {
@@ -736,6 +765,9 @@ public class Proxy implements java.io.Serializable {
                     }
                 });
             }
+            //cons 就是 代理类的构造方法，这一步完事之后，就创建出来了代理对象，并且代理对象内部持有 InvocationHandler
+            //代理对象 必须得有 target 目标对象！
+            //貌似没有传递Target？ 其实已经传递了，InvocationHandler 它里面有target !
             return cons.newInstance(new Object[]{h});
         } catch (IllegalAccessException|InstantiationException e) {
             throw new InternalError(e.toString(), e);
@@ -807,7 +839,7 @@ public class Proxy implements java.io.Serializable {
      */
     @CallerSensitive
     public static InvocationHandler getInvocationHandler(Object proxy)
-        throws IllegalArgumentException
+            throws IllegalArgumentException
     {
         /*
          * Verify that the object is actually a proxy instance.
@@ -822,7 +854,7 @@ public class Proxy implements java.io.Serializable {
             Class<?> ihClass = ih.getClass();
             Class<?> caller = Reflection.getCallerClass();
             if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(),
-                                                    ihClass.getClassLoader()))
+                    ihClass.getClassLoader()))
             {
                 ReflectUtil.checkPackageAccess(ihClass);
             }
